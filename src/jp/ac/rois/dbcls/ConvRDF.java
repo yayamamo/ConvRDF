@@ -1,10 +1,10 @@
 /*
- * This code is derived from arq.examples.riot.ExRIOT_6, which is 
+ * This code is derived from arq.examples.riot.ExRIOT_6, which is
  * distributed under the Apache License, Version 2.0.
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Database Center for Life Science (DBCLS) has developed this code
- * and releases it under MIT style license. 
+ * and releases it under MIT style license.
  */
 
 package jp.ac.rois.dbcls;
@@ -24,27 +24,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.GZIPOutputStream;
 
-import org.apache.jena.riot.RDFParser;
-import org.apache.jena.riot.RDFParserBuilder;
-import org.apache.jena.riot.RiotException;
-import org.apache.jena.riot.Lang;
-import org.apache.jena.riot.RDFDataMgr;
-import org.apache.jena.riot.RDFFormat;
-import org.apache.jena.riot.RiotNotFoundException;
-import org.apache.jena.riot.RiotParseException;
-import org.apache.jena.riot.lang.PipedRDFIterator;
-import org.apache.jena.riot.lang.PipedTriplesStream;
-import org.apache.jena.riot.lang.PipedQuadsStream;
-import org.apache.jena.riot.system.ErrorHandlerFactory;
-import org.apache.jena.riot.system.StreamRDF;
-import org.apache.jena.sparql.core.DatasetGraph;
-import org.apache.jena.sparql.core.DatasetGraphFactory;
-import org.apache.jena.sparql.core.Quad;
-import org.apache.jena.riot.RDFLanguages;
-import org.apache.jena.graph.Triple;
-import org.apache.jena.graph.Graph;
-import org.apache.jena.graph.Factory;
-import org.apache.jena.atlas.logging.LogCtl;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
@@ -53,6 +32,27 @@ import org.apache.commons.compress.compressors.xz.XZCompressorInputStream;
 import org.apache.commons.compress.compressors.xz.XZCompressorOutputStream;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.io.input.CloseShieldInputStream;
+import org.apache.jena.atlas.logging.LogCtl;
+import org.apache.jena.graph.Factory;
+import org.apache.jena.graph.Graph;
+import org.apache.jena.graph.Triple;
+import org.apache.jena.riot.Lang;
+import org.apache.jena.riot.RDFDataMgr;
+import org.apache.jena.riot.RDFFormat;
+import org.apache.jena.riot.RDFLanguages;
+import org.apache.jena.riot.RDFParser;
+import org.apache.jena.riot.RDFParserBuilder;
+import org.apache.jena.riot.RiotException;
+import org.apache.jena.riot.RiotNotFoundException;
+import org.apache.jena.riot.RiotParseException;
+import org.apache.jena.riot.lang.PipedQuadsStream;
+import org.apache.jena.riot.lang.PipedRDFIterator;
+import org.apache.jena.riot.lang.PipedTriplesStream;
+import org.apache.jena.riot.system.ErrorHandlerFactory;
+import org.apache.jena.riot.system.StreamRDF;
+import org.apache.jena.sparql.core.DatasetGraph;
+import org.apache.jena.sparql.core.DatasetGraphFactory;
+import org.apache.jena.sparql.core.Quad;
 
 @SuppressWarnings("deprecation")
 public class ConvRDF {
@@ -61,7 +61,7 @@ public class ConvRDF {
 	static boolean recursive;
 	static boolean checking;
 	static OutputStream out;
-	static final Set<String>types = new HashSet<String>(
+	static final Set<String>types = new HashSet<>(
 			Arrays.asList("String","StringReader","XZCompressorInputStream","CloseShieldInputStream","GzipCompressorInputStream"));
 
 	private static void issuer(String file) {
@@ -84,7 +84,7 @@ public class ConvRDF {
 			System.err.println("No parser for this content.");
 			return;
 		}
-	
+
 		final int interval = 10000;
 		final int buffersize = 100000;
 		final int pollTimeout = 300; // Poll timeout in milliseconds
@@ -157,8 +157,9 @@ public class ConvRDF {
 					parser_object.parse(inputStream);
 				} catch (RiotParseException e){
 					String location = "";
-					if(e.getLine() >= 0 && e.getCol() >= 0)
+					if(e.getLine() >= 0 && e.getCol() >= 0) {
 						location = " at the line: " + e.getLine() + " and the column: " + e.getCol();
+					}
 					System.err.println("Parse error"
 							+ location
 							+ " in \""
@@ -222,7 +223,7 @@ public class ConvRDF {
 			case "gz":
 				is = new GzipCompressorInputStream(fis);
 				break;
-			case "bz2": 
+			case "bz2":
 				is = new BZip2CompressorInputStream(fis);
 				break;
 			case "xz":
@@ -297,10 +298,12 @@ public class ConvRDF {
 					dispatch(f.getPath());
 				}
 			} else if (f.isDirectory()) {
-				if(f.getName().startsWith("."))
+				if(f.getName().startsWith(".")) {
 					continue;
-				if (recursive)
+				}
+				if (recursive) {
 					processRecursively(f);
+				}
 			}
 		}
 	}
@@ -308,7 +311,7 @@ public class ConvRDF {
 	private static void showHelp() {
 		System.out.println(
 				"java -jar ConvRDF.jar [-r|-c|-o <output file>] <file(s) or directory(s) which contain files to be converted>\n" +
-				"  -r: recursively process directories. Default: not recursive.\n" + 
+				"  -r: recursively process directories. Default: not recursive.\n" +
 				"  -c: enable RDF syntax cheking by Apache Jena (RDFParserBuilder). Default: disable.\n" +
 				"  -o <file>: filename of the output (ending with '.gz' or '.xz' is recognized as such). Default w/o this option: standard output.");
 	}
