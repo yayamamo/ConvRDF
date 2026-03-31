@@ -1,10 +1,10 @@
 /*
- * This code is derived from arq.examples.riot.ExRIOT_6, which is 
+ * This code is derived from arq.examples.riot.ExRIOT_6, which is
  * distributed under the Apache License, Version 2.0.
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Database Center for Life Science (DBCLS) has developed this code
- * and releases it under MIT style license. 
+ * and releases it under MIT style license.
  */
 
 package jp.ac.rois.dbcls;
@@ -12,52 +12,63 @@ package jp.ac.rois.dbcls;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.StringReader;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.zip.GZIPOutputStream;
 
-import org.apache.jena.riot.RDFParser;
-import org.apache.jena.riot.RDFParserBuilder;
-import org.apache.jena.riot.RiotException;
-import org.apache.jena.riot.Lang;
-import org.apache.jena.riot.RDFDataMgr;
-import org.apache.jena.riot.RDFFormat;
-import org.apache.jena.riot.RiotNotFoundException;
-import org.apache.jena.riot.RiotParseException;
-import org.apache.jena.riot.lang.PipedRDFIterator;
-import org.apache.jena.riot.lang.PipedRDFStream;
-import org.apache.jena.riot.lang.PipedTriplesStream;
-import org.apache.jena.riot.system.ErrorHandlerFactory;
-import org.apache.jena.riot.RDFLanguages;
-import org.apache.jena.graph.Triple;
-import org.apache.jena.graph.Graph;
-import org.apache.jena.graph.Factory;
-import org.apache.jena.atlas.logging.LogCtl;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 import org.apache.commons.compress.compressors.xz.XZCompressorInputStream;
+import org.apache.commons.compress.compressors.xz.XZCompressorOutputStream;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.io.input.CloseShieldInputStream;
+import org.apache.jena.atlas.logging.LogCtl;
+import org.apache.jena.graph.Factory;
+import org.apache.jena.graph.Graph;
+import org.apache.jena.graph.Triple;
+import org.apache.jena.riot.Lang;
+import org.apache.jena.riot.RDFDataMgr;
+import org.apache.jena.riot.RDFFormat;
+import org.apache.jena.riot.RDFLanguages;
+import org.apache.jena.riot.RDFParser;
+import org.apache.jena.riot.RDFParserBuilder;
+import org.apache.jena.riot.RiotException;
+import org.apache.jena.riot.RiotNotFoundException;
+import org.apache.jena.riot.RiotParseException;
+import org.apache.jena.riot.lang.PipedQuadsStream;
+import org.apache.jena.riot.lang.PipedRDFIterator;
+import org.apache.jena.riot.lang.PipedTriplesStream;
+import org.apache.jena.riot.system.ErrorHandlerFactory;
+import org.apache.jena.riot.system.StreamRDF;
+import org.apache.jena.sparql.core.DatasetGraph;
+import org.apache.jena.sparql.core.DatasetGraphFactory;
+import org.apache.jena.sparql.core.Quad;
 
+@SuppressWarnings("deprecation")
 public class ConvRDF {
 
 	static { LogCtl.setCmdLogging(); }
 	static boolean recursive;
 	static boolean checking;
-	static final Set<String>types = new HashSet<String>(
+	static OutputStream out;
+	static final Set<String>types = new HashSet<>(
 			Arrays.asList("String","StringReader","XZCompressorInputStream","CloseShieldInputStream","GzipCompressorInputStream"));
 
 	private static void issuer(String file) {
 		Lang lang = RDFLanguages.filenameToLang(file);
 		System.err.println("File:" + file);
 		if(lang == null) return;
+		System.err.println(lang);
 		issuer(file, lang);
 	}
 
@@ -73,14 +84,22 @@ public class ConvRDF {
 			System.err.println("No parser for this content.");
 			return;
 		}
-	
+
 		final int interval = 10000;
 		final int buffersize = 100000;
 		final int pollTimeout = 300; // Poll timeout in milliseconds
 		final int maxPolls = 1000;   // Max poll attempts
+		PipedRDFIterator<Triple> tripleIter = null;
+		PipedRDFIterator<Quad> quadIter = null;
+		StreamRDF inputStream;
 
-		PipedRDFIterator<Triple> iter = new PipedRDFIterator<Triple>(buffersize, false, pollTimeout, maxPolls);
-		final PipedRDFStream<Triple> inputStream = new PipedTriplesStream(iter);
+		if(RDFLanguages.isQuads(lang)) {
+			quadIter = new PipedRDFIterator<>(buffersize, false, pollTimeout, maxPolls);
+			inputStream = new PipedQuadsStream(quadIter);
+		}else {
+			tripleIter = new PipedRDFIterator<>(buffersize, false, pollTimeout, maxPolls);
+			inputStream = new PipedTriplesStream(tripleIter);
+		}
 
 		ExecutorService executor = Executors.newSingleThreadExecutor();
 
@@ -138,8 +157,9 @@ public class ConvRDF {
 					parser_object.parse(inputStream);
 				} catch (RiotParseException e){
 					String location = "";
-					if(e.getLine() >= 0 && e.getCol() >= 0)
+					if(e.getLine() >= 0 && e.getCol() >= 0) {
 						location = " at the line: " + e.getLine() + " and the column: " + e.getCol();
+					}
 					System.err.println("Parse error"
 							+ location
 							+ " in \""
@@ -157,19 +177,35 @@ public class ConvRDF {
 		executor.submit(parser);
 
 		int i = 0;
-		Graph g = Factory.createDefaultGraph();
 		try{
-			while (iter.hasNext()) {
-				Triple next = iter.next();
-				g.add(next);
-				i++;
-				if(i % interval == 0){
-					RDFDataMgr.write(System.out, g, RDFFormat.NTRIPLES_UTF8);
-					g = Factory.createDefaultGraph();
+			if (quadIter != null) {
+				DatasetGraph dsg = DatasetGraphFactory.create();
+				while (quadIter.hasNext()) {
+					Quad next = quadIter.next();
+					dsg.add(next);
+					i++;
+					if(i % interval == 0){
+						RDFDataMgr.write(out, dsg, RDFFormat.NQUADS_UTF8);
+						dsg = DatasetGraphFactory.create();
+					}
 				}
-			}
-			if(i % interval > 0){
-				RDFDataMgr.write(System.out, g, RDFFormat.NTRIPLES_UTF8);
+				if(i % interval > 0){
+					RDFDataMgr.write(out, dsg, RDFFormat.NQUADS_UTF8);
+				}
+			}else {
+				Graph g = Factory.createDefaultGraph();
+				while (tripleIter.hasNext()) {
+					Triple next = tripleIter.next();
+					g.add(next);
+					i++;
+					if(i % interval == 0){
+						RDFDataMgr.write(out, g, RDFFormat.NTRIPLES_UTF8);
+						g = Factory.createDefaultGraph();
+					}
+				}
+				if(i % interval > 0){
+					RDFDataMgr.write(out, g, RDFFormat.NTRIPLES_UTF8);
+				}
 			}
 		}
 		catch (RiotException e){
@@ -187,7 +223,7 @@ public class ConvRDF {
 			case "gz":
 				is = new GzipCompressorInputStream(fis);
 				break;
-			case "bz2": 
+			case "bz2":
 				is = new BZip2CompressorInputStream(fis);
 				break;
 			case "xz":
@@ -262,31 +298,49 @@ public class ConvRDF {
 					dispatch(f.getPath());
 				}
 			} else if (f.isDirectory()) {
-				if(f.getName().startsWith("."))
+				if(f.getName().startsWith(".")) {
 					continue;
-				if (recursive)
+				}
+				if (recursive) {
 					processRecursively(f);
+				}
 			}
 		}
 	}
 
 	private static void showHelp() {
 		System.out.println(
-				"java -jar ConvRDF.jar [-r|-c] <file(s) or directory(s) which contain files to be converted>\n" +
-				"  -r: recursively process directories. Default: not recursive.\n" + 
-				"  -c: enable RDF syntax cheking by Apache Jena (RDFParserBuilder). Default: disable.");
+				"java -jar ConvRDF.jar [-r|-c|-o <output file>] <file(s) or directory(s) which contain files to be converted>\n" +
+				"  -r: recursively process directories. Default: not recursive.\n" +
+				"  -c: enable RDF syntax cheking by Apache Jena (RDFParserBuilder). Default: disable.\n" +
+				"  -o <file>: filename of the output (ending with '.gz' or '.xz' is recognized as such). Default w/o this option: standard output.");
 	}
 
-	public static void main(String[] args) {
-
+    public static void main(String[] args) {
 		int idx = 0;
 		recursive = false;
 		checking = false;
+		out = System.out;
 		while (idx < args.length && args[idx].startsWith("-")) {
 			if(args[idx].equals("-r")) {
 				recursive = true;
 			} else if(args[idx].equals("-c")) {
 				checking = true;
+			} else if(args[idx].equals("-o")) {
+				idx++;
+			    try {
+			        OutputStream fos = new FileOutputStream(args[idx]);
+
+			        if (args[idx].endsWith(".gz")) {
+			            fos = new GZIPOutputStream(fos);
+			        } else if (args[idx].endsWith(".xz")) {
+			            fos = new XZCompressorOutputStream(fos);
+			        }
+
+			        out = fos;
+			    } catch (IOException e) {
+			        System.err.println("File error: " + e.getMessage());
+			    }
 			}
 			idx++;
 		}
